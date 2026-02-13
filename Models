@@ -1,0 +1,149 @@
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
+
+db = SQLAlchemy()
+
+# Association table for followers
+followers = db.Table(
+    'followers',
+    db.Column('follower_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('followed_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
+)
+
+# Association table for likes
+likes = db.Table(
+    'likes',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'), primary_key=True)
+)
+
+class User(UserMixin, db.Model):
+    """User model"""
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    bio = db.Column(db.String(500))
+    profile_picture = db.Column(db.String(255), default='default.jpg')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    posts = db.relationship('Post', backref='author', lazy=True, cascade='all, delete-orphan')
+    comments = db.relationship('Comment', backref='author', lazy=True, cascade='all, delete-orphan')
+    messages = db.relationship('Message', backref='sender', lazy=True, foreign_keys='Message.sender_id')
+    
+    # Following/Followers
+    following = db.relationship(
+        'User',
+        secondary=followers,
+        primaryjoin=(followers.c.follower_id == id),
+        secondaryjoin=(followers.c.followed_id == id),
+        backref=db.backref('followers_list', lazy='dynamic'),
+        lazy='dynamic'
+    )
+    
+    # Liked posts
+    liked_posts = db.relationship(
+        'Post',
+        secondary=likes,
+        backref=db.backref('liked_by', lazy='dynamic')
+    )
+    
+    def set_password(self, password):
+        """Hash and set password"""
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        """Verify password"""
+        return check_password_hash(self.password_hash, password)
+    
+    def follow(self, user):
+        """Follow a user"""
+        if not self.is_following(user):
+            self.following.append(user)
+    
+    def unfollow(self, user):
+        """Unfollow a user"""
+        if self.is_following(user):
+            self.following.remove(user)
+    
+    def is_following(self, user):
+        """Check if following a user"""
+        return self.following.filter(followers.c.followed_id == user.id).count() > 0
+    
+    def get_follower_count(self):
+        """Get follower count"""
+        return self.followers_list.count()
+    
+    def get_following_count(self):
+        """Get following count"""
+        return self.following.count()
+    
+    def like_post(self, post):
+        """Like a post"""
+        if post not in self.liked_posts:
+            self.liked_posts.append(post)
+    
+    def unlike_post(self, post):
+        """Unlike a post"""
+        if post in self.liked_posts:
+            self.liked_posts.remove(post)
+    
+    def has_liked(self, post):
+        """Check if user liked a post"""
+        return post in self.liked_posts
+    
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+class Post(db.Model):
+    """Post model"""
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    image_url = db.Column(db.String(255))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    comments = db.relationship('Comment', backref='post', lazy=True, cascade='all, delete-orphan')
+    
+    def get_like_count(self):
+        """Get like count"""
+        return self.liked_by.count()
+    
+    def get_comment_count(self):
+        """Get comment count"""
+        return len(self.comments)
+    
+    def __repr__(self):
+        return f'<Post {self.id}>'
+
+class Comment(db.Model):
+    """Comment model"""
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<Comment {self.id}>'
+
+class Message(db.Model):
+    """Direct message model"""
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+    
+    receiver = db.relationship('User', foreign_keys=[receiver_id])
+    
+    def __repr__(self):
+        return f'<Message {self.id}>'
