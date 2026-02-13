@@ -1,0 +1,15 @@
+print("=== Welcome to My App ===")
+
+# Stored username and password
+correct_username = "admin"
+correct_password = "1234"
+
+# Ask user input
+username = input("Enter Username: ")
+password = input("Enter Password: ")
+
+# Check login
+if username == correct_username and password == correct_password:
+    print("Login Successful! 🎉")
+else:
+    print("Login Failed ❌")
